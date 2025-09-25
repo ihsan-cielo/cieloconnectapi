@@ -1,0 +1,18 @@
+[project]
+name = "cielo-home-cloud"
+version = "0.1.0"
+description = "Async client for Cielo Home cloud API"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Cielo Wigle Inc.", email = "info@cielowigle.com" }]
+dependencies = ["aiohttp>=3.9"]
+
+[project.urls]
+Homepage = "https://github.com/your-org/cielo-home-cloud"
+Repository = "https://github.com/your-org/cielo-home-cloud"
+Changelog = "https://github.com/your-org/cielo-home-cloud/releases"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
