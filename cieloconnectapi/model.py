@@ -22,19 +22,21 @@ class CieloDevice:
     mac_address: str
     name: str
 
-    # Current states / environment
     ac_states: Mapping[str, Any]
     device_status: Optional[bool]
     temp: Optional[float]
     humidity: Optional[int]
     target_temp: Optional[float]
+    target_heat_set_point: Optional[float]
+    target_cool_set_point: Optional[float]
     hvac_mode: Optional[str]
-    device_on: Optional[bool]
-
-    # Capabilities & metadata
-    is_thermostat: Optional[bool]
     fan_mode: Optional[str]
     swing_mode: Optional[str]
+    preset_mode: Optional[int]
+    device_on: Optional[bool]
+
+    is_thermostat: Optional[bool]
+    appliance_id: Optional[int]
     hvac_modes: Optional[List[str]]
     fan_modes: Optional[List[str]]
     fan_modes_translated: Optional[Dict[str, str]]
@@ -42,7 +44,6 @@ class CieloDevice:
     swing_modes_translated: Optional[Dict[str, str]]
     temp_list: List[int]
     preset_modes: Optional[List[str]]
-    preset_mode: Optional[int]
     temp_unit: Optional[str]
     temp_step: Optional[int]
-    is_appliance_screen_less: Optional[bool]
+    supported_features: Optional[Dict[str, str]]
