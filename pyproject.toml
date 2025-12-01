@@ -3,12 +3,12 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cieloconnectapi"
+name = "cielo-connect-api"
 version = "0.0.1"
 description = "Python package for Cielo Connect APIs."
 readme = "README.md"
 license = { file = "LICENSE" }
-authors = [{ name = "Muhammad Ihsan", email = "ihsan.cielo@gmail.com" }]
+authors = [{ name = "Cielo Wigle Inc.", email = "info@cielowigle.com" }]
 requires-python = ">=3.8"
 classifiers = [
   "Programming Language :: Python :: 3",
