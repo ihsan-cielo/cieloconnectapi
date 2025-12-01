@@ -1,13 +1,13 @@
 """Async Python API client for Cielo Home."""
 
 from .client import CieloClient
+from .exceptions import AuthenticationError, CieloError
 from .model import CieloData, CieloDevice
-from .exceptions import CieloError, AuthenticationError
 
 __all__ = [
+    "AuthenticationError",
     "CieloClient",
     "CieloData",
     "CieloDevice",
     "CieloError",
-    "AuthenticationError",
 ]

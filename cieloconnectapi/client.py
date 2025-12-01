@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-from typing import Any, Dict, Mapping, Optional
 from bisect import bisect_left
+from collections.abc import Mapping
+import logging
+from typing import Any
 
-from aiohttp import ClientSession, ClientTimeout, ClientResponse
+from aiohttp import ClientResponse, ClientSession, ClientTimeout
 
+from .const import *
 from .exceptions import AuthenticationError, CieloError
 from .model import CieloData, CieloDevice
-from .const import *
 
 __version__ = "0.1.0"
 
@@ -34,14 +35,15 @@ class CieloClient:
         self,
         api_key: str,
         *,
-        session: Optional[ClientSession] = None,
+        session: ClientSession | None = None,
         timeout: int = DEFAULT_TIMEOUT,
-        token: Optional[str] = None,
+        token: str | None = None,
         max_retries: int = 2,
     ) -> None:
         self.api_key = api_key
         self.token = token
         self.device_data = None
+        self.cached_supported_features = {}
         self._owned_session = session is None
         self._session: ClientSession = session or ClientSession(
             timeout=ClientTimeout(total=timeout)
@@ -97,10 +99,14 @@ class CieloClient:
     async def get_devices_data(self) -> CieloData:
         """Fetch and parse all devices into normalized dataclasses."""
         await self.get_or_refresh_token()
-        response = await self._get(f"{BASE_URL}/devices", headers=self._auth_headers())
+        cached_appliances = self.get_cached_appliance_ids()
+        response = await self._get(
+            f"{BASE_URL}/devices/?cached_appliance_ids={cached_appliances}",
+            headers=self._auth_headers(),
+        )
         devices_payload = (response or {}).get("data", {})
 
-        parsed: Dict[str, CieloDevice] = {}
+        parsed: dict[str, CieloDevice] = {}
 
         if isinstance(devices_payload, dict):
             for _k, devices in devices_payload.items():
@@ -135,11 +141,11 @@ class CieloClient:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _auth_headers(self) -> Dict[str, str]:
+    def _auth_headers(self) -> dict[str, str]:
         return {"x-api-key": self.api_key, "Authorization": self.token or ""}
 
     def _add_device(
-        self, parsed: Dict[str, CieloDevice], device: Mapping[str, Any]
+        self, parsed: dict[str, CieloDevice], device: Mapping[str, Any]
     ) -> None:
         dev = self._parse_device(device)
         try:
@@ -152,7 +158,25 @@ class CieloClient:
         mac_address = device["mac_address"]
         sensor_readings = device.get("sensor_readings") or {}
         temp_unit = device["temperature_unit"]
+        appliance_id = device["appliance_id"]
         supported_features = device["supported_features"]
+
+        if appliance_id:
+            if appliance_id not in self.cached_supported_features:  # not cached yet
+                self.cached_supported_features.update(
+                    {appliance_id: supported_features}
+                )
+
+            cache = self.cached_supported_features[appliance_id]
+
+            # Modes
+            cache["modes"] = supported_features.get("modes") or cache.get("modes")
+            supported_features["modes"] = cache["modes"]
+
+            # Presets
+            cache["presets"] = supported_features.get("presets") or cache.get("presets")
+            supported_features["presets"] = cache["presets"]
+
         is_thermostat = device["device_type"] == "Thermostat"
         ac_state = device["current_state"]
         target_temp = ac_state["set_point"]
@@ -176,7 +200,7 @@ class CieloClient:
             mac_address=mac_address,
             name=device["device_name"],
             ac_states=ac_state,
-            appliance_id=device["appliance_id"],
+            appliance_id=appliance_id,
             device_status=device["connection_status"]["is_alive"],
             temp=sensor_readings["temperature"],
             humidity=sensor_readings["humidity"],
@@ -205,6 +229,11 @@ class CieloClient:
             supported_features=supported_features,
         )
 
+    def get_cached_appliance_ids(self):
+        return (
+            "[" + ",".join(str(k) for k in self.cached_supported_features.keys()) + "]"
+        )
+
     # ------------------------------------------------------------------
     # HTTP core
     # ------------------------------------------------------------------
@@ -213,12 +242,12 @@ class CieloClient:
         method: str,
         url: str,
         *,
-        headers: Optional[Mapping[str, str]] = None,
-        params: Optional[Mapping[str, Any]] = None,
-        json_data: Optional[Mapping[str, Any]] = None,
-        retries: Optional[int] = None,
+        headers: Mapping[str, str] | None = None,
+        params: Mapping[str, Any] | None = None,
+        json_data: Mapping[str, Any] | None = None,
+        retries: int | None = None,
         auth_ok: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         attempts = 0
         max_retries = self._max_retries if retries is None else max(0, int(retries))
 
@@ -270,7 +299,7 @@ class CieloClient:
                     f"Request failed after {attempts - 1} retries: {exc}"
                 ) from exc
 
-    async def _handle_response(self, resp: ClientResponse) -> Dict[str, Any]:
+    async def _handle_response(self, resp: ClientResponse) -> dict[str, Any]:
         if resp.status in AUTH_ERROR_CODES:
             raise AuthenticationError(f"Authentication failed (HTTP {resp.status})")
         if resp.status != 200:
@@ -282,10 +311,10 @@ class CieloClient:
         except Exception as exc:
             raise CieloError(f"Invalid JSON response: {exc}") from exc
 
-    async def _get(self, url: str, **kwargs) -> Dict[str, Any]:
+    async def _get(self, url: str, **kwargs) -> dict[str, Any]:
         return await self._request("GET", url, **kwargs)
 
-    async def _post(self, url: str, **kwargs) -> Dict[str, Any]:
+    async def _post(self, url: str, **kwargs) -> dict[str, Any]:
         return await self._request("POST", url, **kwargs)
 
     #### HELPERS ####
@@ -313,7 +342,7 @@ class CieloClient:
         temps = (caps.get("temperatures") or {}).get(self.device_data.temp_unit, {})
         return list(temps.get("values") or [])
 
-    def _find_valid_target_temp(self, target: float | int, valid: list[int]) -> int:
+    def _find_valid_target_temp(self, target: float, valid: list[int]) -> int:
         if not valid:
             return int(round(float(target)))
         target = int(round(float(target)))
@@ -494,12 +523,12 @@ class CieloClient:
         from time import time
 
         if not self.available():
-            return
+            return None
 
         if self.device_data.ac_states.get(
             "power"
         ) == HVACMode.OFF and action_type not in ("power", "preset"):
-            return
+            return None
 
         self.last_action_timestamp = int(time())
         self.device_data.ac_states[action_type] = action_value
@@ -528,7 +557,7 @@ class CieloClient:
                 heat_temp == self.device_data.target_heat_set_point
                 and cool_temp == self.device_data.target_cool_set_point
             ):
-                return
+                return None
 
             # Thermostat in Celsius: accept 0.5 steps
             if self._supports_half_step(ha_unit):
@@ -552,18 +581,18 @@ class CieloClient:
             # Non-thermostat or non-Celsius: keep current integer snapping
             valid = self._current_mode_temp_values()
             if not valid:
-                return  # nothing to do
+                return None  # nothing to do
 
             heat_temp = self._find_valid_target_temp(heat_temp, valid)
             cool_temp = self._find_valid_target_temp(cool_temp, valid)
 
             if float(heat_temp) != float(self.device_data.target_heat_set_point):
                 response = await self.async_send_api_call(
-                    action_type="heat_set_point", action_value=int(heat_temp)
+                    action_type="heat_set_point", action_value=float(heat_temp)
                 )
             elif float(cool_temp) != float(self.device_data.target_cool_set_point):
                 response = await self.async_send_api_call(
-                    action_type="cool_set_point", action_value=int(cool_temp)
+                    action_type="cool_set_point", action_value=float(cool_temp)
                 )
             return response
 
@@ -574,16 +603,16 @@ class CieloClient:
             or not self.device_data.device_on
             or self.device_data.hvac_mode == HVACMode.OFF
         ):
-            return
+            return None
 
         if not self._mode_supports_temperature():
-            return
+            return None
 
         # Thermostat in Celsius: 0.5°C steps
         if self._supports_half_step(ha_unit):
             new_t = self._round_to_half(float(t))
             if float(new_t) == float(self.device_data.target_temp or 0):
-                return
+                return None
             self.device_data.ac_states["set_point"] = new_t
             response = await self.async_send_api_call(
                 action_type="set_point", action_value=new_t
@@ -593,7 +622,7 @@ class CieloClient:
         # Non-thermostat or non-Celsius: snap to supported integer values
         valid = self._current_mode_temp_values()
         if not valid:
-            return  # nothing to do
+            return None  # nothing to do
 
         new_t = self._find_valid_target_temp(t, valid)
         self.device_data.ac_states["set_point"] = int(new_t)
@@ -626,11 +655,12 @@ class CieloClient:
                 int(self.device_data.ac_states["preset"]) - 1
             ]
             if (
-                "vanish"
-                in self.device_data.supported_features["modes"][hvac_mode]["rules"]
-            ) and applied_preset["mode"] == "smart mode":
-                self.device_data.ac_states.update({"preset": 0})
-            elif applied_preset["mode"] != "smart mode":
+                (
+                    "vanish"
+                    in self.device_data.supported_features["modes"][hvac_mode]["rules"]
+                )
+                and applied_preset["mode"] == "smart mode"
+            ) or applied_preset["mode"] != "smart mode":
                 self.device_data.ac_states.update({"preset": 0})
 
         if (
@@ -681,7 +711,7 @@ class CieloClient:
     async def async_set_fan_mode(self, fan_mode: str) -> dict | None:
         available = self.fan_modes()
         if not available:
-            return
+            return None
         self.device_data.ac_states["fan_speed"] = fan_mode
         self.device_data.ac_states["preset"] = 0
         return await self.async_send_api_call(
@@ -690,7 +720,7 @@ class CieloClient:
 
     async def async_set_preset_mode(self, preset_mode: str) -> dict | None:
         if not self.device_data.preset_modes:
-            return
+            return None
 
         idx = self.device_data.preset_modes.index(preset_mode) + 1
         self.device_data.ac_states.update({"preset": idx})
