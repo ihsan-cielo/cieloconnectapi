@@ -16,7 +16,7 @@ from .model import CieloData, CieloDevice
 
 __version__ = "0.1.0"
 
-BASE_URL = "https://devapi.smartcielo.com/openapi/v1"
+BASE_URL = "https://api.smartcielo.com/openapi/v1"
 DEFAULT_TIMEOUT = 5 * 60  # 5 minutes
 AUTH_ERROR_CODES = {401, 403}
 
